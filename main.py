@@ -1,7 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-
 from database import cursor, conn
 import time
 import os
@@ -20,9 +19,7 @@ def check_finish():
     cursor.execute("SELECT id, end_time, status FROM lots")
     lots = cursor.fetchall()
 
-    for l in lots:
-        lot_id, end_time, status = l
-
+    for lot_id, end_time, status in lots:
         if status == "active" and end_time and now > end_time:
             cursor.execute("""
                 UPDATE lots
@@ -40,7 +37,6 @@ def check_finish():
 def home():
 
     check_finish()
-
     now = int(time.time())
 
     cursor.execute("SELECT * FROM lots ORDER BY id DESC")
@@ -48,9 +44,9 @@ def home():
 
     html = ""
 
-    for lot in lots:
+    for l in lots:
 
-        id, title, desc, price, blitz, step, seller, leader, end_time, status = lot
+        id, title, desc, price, blitz, step, seller, leader, end_time, status = l
 
         if status == "finished":
             timer = "🏁 FINISHED"
@@ -66,6 +62,7 @@ def home():
 
             <div>💰 {price} грн</div>
             <div>⚡ {blitz} грн</div>
+            <div>📈 step {step}</div>
             <div>👤 {seller}</div>
             <div>👑 {leader}</div>
             <div>{timer}</div>
@@ -83,13 +80,64 @@ def home():
         <script src="https://telegram.org/js/telegram-web-app.js"></script>
         <link rel="stylesheet" href="/static/style.css">
     </head>
+
     <body>
-        <h1>Auction PRO</h1>
+
+        <h1>🏆 Auction PRO</h1>
+
+        <div class="create-box">
+
+            <h2>➕ Создать лот</h2>
+
+            <input id="title" placeholder="Название">
+            <input id="desc" placeholder="Описание">
+            <input id="price" placeholder="Старт цена">
+            <input id="blitz" placeholder="Блиц цена">
+            <input id="step" placeholder="Шаг ставки">
+            <input id="time" placeholder="Минуты">
+
+            <button onclick="createLot()">Создать</button>
+
+        </div>
+
+        <hr>
+
         {html}
+
         <script src="/static/app.js"></script>
     </body>
     </html>
     """
+
+
+# -------------------------
+# CREATE LOT
+# -------------------------
+@app.post("/create_lot")
+async def create_lot(request: Request):
+
+    data = await request.json()
+
+    title = data["title"]
+    desc = data["desc"]
+    price = int(data["price"])
+    blitz = int(data["blitz"])
+    step = int(data["step"])
+    minutes = int(data["time"])
+    seller = data.get("seller", "user")
+
+    end_time = int(time.time()) + minutes * 60
+
+    cursor.execute("""
+        INSERT INTO lots(title, description, current_price, blitz_price, min_step, seller, leader, end_time, status)
+        VALUES(?,?,?,?,?,?,?,?, 'active')
+    """, (
+        title, desc, price, blitz, step, seller, "", end_time
+    ))
+
+    conn.commit()
+
+    return {"ok": True}
 
 
 # -------------------------
