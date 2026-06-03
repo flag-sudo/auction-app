@@ -11,30 +11,31 @@ CREATE TABLE IF NOT EXISTS lots(
     description TEXT,
     current_price INTEGER,
     blitz_price INTEGER,
+    min_step INTEGER,
     seller TEXT,
     leader TEXT,
-    end_time INTEGER
+    end_time INTEGER,
+    status TEXT DEFAULT 'active'
 )
 """)
 
 conn.commit()
 
 
-# -------------------------
-# АВТО-СОЗДАНИЕ ЛОТА ЕСЛИ ПУСТО
-# -------------------------
+# авто-лот
 cursor.execute("SELECT COUNT(*) FROM lots")
 count = cursor.fetchone()[0]
 
 if count == 0:
     cursor.execute("""
-    INSERT INTO lots(title, description, current_price, blitz_price, seller, leader, end_time)
-    VALUES(?,?,?,?,?,?,?)
+    INSERT INTO lots(title, description, current_price, blitz_price, min_step, seller, leader, end_time)
+    VALUES(?,?,?,?,?,?,?,?)
     """, (
-        "Test iPhone 14",
-        "Почти новый телефон",
+        "iPhone 14 Pro",
+        "Почти новый, без царапин",
         500,
-        1000,
+        1200,
+        50,
         "@seller",
         "",
         int(time.time()) + 3600
