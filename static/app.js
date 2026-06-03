@@ -4,13 +4,31 @@ tg.expand();
 let user = tg.initDataUnsafe?.user;
 let username = user ? (user.username || user.first_name) : "guest";
 
-
-async function bid(id, step){
+async function bid(id){
 
     await fetch(`/bid/${id}`, {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({user: username})
+    });
+
+    location.reload();
+}
+
+
+async function customBid(id){
+
+    let value = prompt("Введи свою цену:");
+
+    if(!value) return;
+
+    await fetch(`/custom_bid/${id}`, {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({
+            user: username,
+            value: Number(value)
+        })
     });
 
     location.reload();
