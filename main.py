@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+
 from database import cursor, conn
 import time
 import os
@@ -11,30 +12,23 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 # -------------------------
-# ПРОВЕРКА ЗАВЕРШЕНИЯ
+# CHECK FINISH
 # -------------------------
-def finish_check():
+def check_finish():
     now = int(time.time())
 
-    cursor.execute("SELECT id, end_time, leader, status FROM lots")
+    cursor.execute("SELECT id, end_time, status FROM lots")
     lots = cursor.fetchall()
 
     for l in lots:
-        lot_id = l[0]
-        end_time = l[1]
-        leader = l[2]
-        status = l[3]
+        lot_id, end_time, status = l
 
         if status == "active" and end_time and now > end_time:
-
-            winner = leader if leader else "нет ставок"
-
             cursor.execute("""
                 UPDATE lots
-                SET status='finished',
-                    leader=?
+                SET status='finished'
                 WHERE id=?
-            """, (f"🏁 {winner}", lot_id))
+            """, (lot_id,))
 
     conn.commit()
 
@@ -45,7 +39,7 @@ def finish_check():
 @app.get("/", response_class=HTMLResponse)
 def home():
 
-    finish_check()
+    check_finish()
 
     now = int(time.time())
 
@@ -56,48 +50,29 @@ def home():
 
     for lot in lots:
 
-        lot_id = lot[0]
-        title = lot[1]
-        desc = lot[2]
-        price = lot[3]
-        blitz = lot[4]
-        step = lot[5]
-        seller = lot[6]
-        leader = lot[7]
-        end_time = lot[8]
-        status = lot[9]
+        id, title, desc, price, blitz, step, seller, leader, end_time, status = lot
 
         if status == "finished":
-            time_text = "🏁 Завершён"
+            timer = "🏁 FINISHED"
         else:
             remaining = end_time - now
-            m = remaining // 60
-            s = remaining % 60
-            time_text = f"⏱ {m}м {s}с"
+            timer = f"⏱ {remaining//60}m {remaining%60}s"
 
         html += f"""
         <div class="lot">
 
-            <div class="photo">📷 ITEM</div>
-
             <h2>{title}</h2>
             <p>{desc}</p>
 
-            <div class="info">
+            <div>💰 {price} грн</div>
+            <div>⚡ {blitz} грн</div>
+            <div>👤 {seller}</div>
+            <div>👑 {leader}</div>
+            <div>{timer}</div>
 
-                <div>💰 Цена: <b>{price} грн</b></div>
-                <div>⚡ Блиц: <b>{blitz} грн</b></div>
-                <div>📈 Шаг: <b>{step} грн</b></div>
-                <div>👤 Продавец: {seller}</div>
-                <div>👑 Лидер: {leader}</div>
-                <div>{time_text}</div>
-
-            </div>
-
-            <div class="buttons">
-                <button onclick="bid({lot_id}, {step})">Сделать ставку</button>
-                <button onclick="blitz({lot_id})">⚡ Блиц</button>
-            </div>
+            <button onclick="bid({id})">+ ставка</button>
+            <button onclick="customBid({id})">своя цена</button>
+            <button onclick="blitz({id})">blitz</button>
 
         </div>
         """
@@ -109,7 +84,7 @@ def home():
         <link rel="stylesheet" href="/static/style.css">
     </head>
     <body>
-        <h1>🏆 PRO Auction</h1>
+        <h1>Auction PRO</h1>
         {html}
         <script src="/static/app.js"></script>
     </body>
@@ -124,39 +99,52 @@ def home():
 async def bid(lot_id: int, request: Request):
 
     data = await request.json()
-    user = data.get("user", "anon")
+    user = data["user"]
 
-    cursor.execute("SELECT current_price, min_step, blitz_price, end_time, status FROM lots WHERE id=?",
-                   (lot_id,))
-    lot = cursor.fetchone()
-
-    if not lot:
-        return {"ok": False}
-
-    price, step, blitz, end_time, status = lot
+    cursor.execute("SELECT current_price, min_step, status FROM lots WHERE id=?", (lot_id,))
+    price, step, status = cursor.fetchone()
 
     if status == "finished":
         return {"ok": False}
 
     new_price = price + step
 
-    now = int(time.time())
-
-    # AUTO +5 min если ставка в конце
-    if end_time - now < 120:
-        end_time += 300
-
     cursor.execute("""
         UPDATE lots
-        SET current_price=?,
-            leader=?,
-            end_time=?
+        SET current_price=?, leader=?
         WHERE id=?
-    """, (new_price, user, end_time, lot_id))
+    """, (new_price, user, lot_id))
 
     conn.commit()
 
-    return {"ok": True, "price": new_price, "leader": user}
+    return {"ok": True}
+
+
+# -------------------------
+# CUSTOM BID
+# -------------------------
+@app.post("/custom_bid/{lot_id}")
+async def custom_bid(lot_id: int, request: Request):
+
+    data = await request.json()
+    user = data["user"]
+    value = data["value"]
+
+    cursor.execute("SELECT current_price FROM lots WHERE id=?", (lot_id,))
+    current = cursor.fetchone()[0]
+
+    if value <= current:
+        return {"ok": False}
+
+    cursor.execute("""
+        UPDATE lots
+        SET current_price=?, leader=?
+        WHERE id=?
+    """, (value, user, lot_id))
+
+    conn.commit()
+
+    return {"ok": True}
 
 
 # -------------------------
@@ -166,22 +154,20 @@ async def bid(lot_id: int, request: Request):
 async def blitz(lot_id: int, request: Request):
 
     data = await request.json()
-    user = data.get("user", "anon")
+    user = data["user"]
 
     cursor.execute("SELECT blitz_price FROM lots WHERE id=?", (lot_id,))
-    blitz_price = cursor.fetchone()[0]
+    price = cursor.fetchone()[0]
 
     cursor.execute("""
         UPDATE lots
-        SET current_price=?,
-            leader=?,
-            status='finished'
+        SET current_price=?, leader=?, status='finished'
         WHERE id=?
-    """, (blitz_price, user, lot_id))
+    """, (price, user, lot_id))
 
     conn.commit()
 
-    return {"ok": True, "winner": user}
+    return {"ok": True}
 
 
 # -------------------------
