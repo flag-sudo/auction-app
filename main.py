@@ -10,7 +10,7 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # -------------------------
-# DB
+# DATABASE
 # -------------------------
 conn = sqlite3.connect("auction.db", check_same_thread=False)
 cursor = conn.cursor()
@@ -51,8 +51,12 @@ def finish_engine():
     now = int(time.time())
 
     cursor.execute("SELECT id, end_time, status FROM lots")
-    for row in cursor.fetchall():
-        lot_id, end_time, status = row
+    rows = cursor.fetchall()
+
+    for r in rows:
+        lot_id = r[0]
+        end_time = r[1]
+        status = r[2]
 
         if status == "active" and end_time and now > end_time:
             cursor.execute("""
@@ -65,7 +69,7 @@ def finish_engine():
 
 
 # -------------------------
-# HOME
+# HOME PAGE (SAFE)
 # -------------------------
 @app.get("/", response_class=HTMLResponse)
 def home():
@@ -80,41 +84,49 @@ def home():
 
     for l in lots:
 
-        # 🔥 SAFE INDEX (NO UNPACK CRASH)
-        id = l[0]
+        # SAFE ACCESS (no crash)
+        if len(l) < 9:
+            continue
+
+        lot_id = l[0]
         title = l[1]
         desc = l[2]
         price = l[3]
         blitz = l[4]
         step = l[5]
-        seller = l[6]
-        leader = l[7]
-        end_time = l[8]
-        status = l[9]
+        seller = l[6] if len(l) > 6 else ""
+        leader = l[7] if len(l) > 7 else ""
+        end_time = l[8] if len(l) > 8 else 0
+        status = l[9] if len(l) > 9 else "active"
 
         if status == "finished":
             timer = "🏁 FINISHED"
         else:
-            remaining = max(0, end_time - now)
-            timer = f"⏱ {remaining//60}m {remaining%60}s"
+            if end_time == 0:
+                timer = "⏳ no timer"
+            else:
+                remaining = max(0, end_time - now)
+                timer = f"⏱ {remaining//60}m {remaining%60}s"
 
         html += f"""
-        <div class="lot">
+        <div style="border:1px solid #ccc; padding:10px; margin:10px">
 
             <h2>{title}</h2>
             <p>{desc}</p>
 
-            <div>💰 {price} грн</div>
-            <div>⚡ {blitz} грн</div>
-            <div>📈 step {step}</div>
-            <div>👤 🔒 seller hidden</div>
-            <div>👑 {leader}</div>
+            <div>💰 price: {price}</div>
+            <div>⚡ blitz: {blitz}</div>
+            <div>📈 step: {step}</div>
+
+            <div>👤 seller: 🔒 hidden</div>
+            <div>👑 leader: {leader}</div>
+
             <div>{timer}</div>
 
-            <button onclick="bid({id})">+ ставка</button>
-            <button onclick="customBid({id})">своя цена</button>
-            <button onclick="blitz({id})">blitz</button>
-            <button onclick="unlock({id})">🔓 unlock (20⭐)</button>
+            <button onclick="bid({lot_id})">+ bid</button>
+            <button onclick="customBid({lot_id})">custom</button>
+            <button onclick="blitz({lot_id})">blitz</button>
+            <button onclick="unlock({lot_id})">🔓 unlock</button>
 
         </div>
         """
@@ -124,14 +136,12 @@ def home():
     <head>
         <script src="https://telegram.org/js/telegram-web-app.js"></script>
     </head>
+
     <body>
 
-        <h1>🏆 Auction PRO FINAL</h1>
+        <h1>🏆 Auction FINAL VERSION</h1>
 
-        <div class="create-box">
-
-            <h3>Create lot</h3>
-
+        <div>
             <input id="title" placeholder="title">
             <input id="desc" placeholder="desc">
             <input id="price" placeholder="price">
@@ -140,7 +150,6 @@ def home():
             <input id="time" placeholder="minutes">
 
             <button onclick="createLot()">create</button>
-
         </div>
 
         <hr>
@@ -148,6 +157,7 @@ def home():
         {html}
 
         <script src="/static/app.js"></script>
+
     </body>
     </html>
     """
@@ -162,7 +172,11 @@ async def create_lot(request: Request):
     data = await request.json()
 
     cursor.execute("""
-        INSERT INTO lots(title, description, current_price, blitz_price, min_step, seller, leader, end_time, status)
+        INSERT INTO lots(
+            title, description, current_price,
+            blitz_price, min_step,
+            seller, leader, end_time, status
+        )
         VALUES(?,?,?,?,?,?,?,?,?)
     """, (
         data["title"],
@@ -224,12 +238,12 @@ async def custom_bid(lot_id: int, request: Request):
     value = data["value"]
 
     cursor.execute("SELECT current_price FROM lots WHERE id=?", (lot_id,))
-    current = cursor.fetchone()
+    row = cursor.fetchone()
 
-    if not current:
+    if not row:
         return {"ok": False}
 
-    if value <= current[0]:
+    if value <= row[0]:
         return {"ok": False}
 
     cursor.execute("""
@@ -272,7 +286,7 @@ async def blitz(lot_id: int, request: Request):
 
 
 # -------------------------
-# UNLOCK CONTACT (MVP COMMERCIAL)
+# UNLOCK CONTACT (COMMERCIAL CORE)
 # -------------------------
 @app.post("/unlock/{lot_id}")
 async def unlock(lot_id: int, request: Request):
@@ -291,7 +305,13 @@ async def unlock(lot_id: int, request: Request):
     cursor.execute("""
         INSERT INTO payments(user, lot_id, type, status, created_at)
         VALUES(?,?,?,?,?)
-    """, (user, lot_id, "unlock", "paid_mock", int(time.time())))
+    """, (
+        user,
+        lot_id,
+        "unlock",
+        "paid_mock",
+        int(time.time())
+    ))
 
     conn.commit()
 
@@ -299,7 +319,7 @@ async def unlock(lot_id: int, request: Request):
 
 
 # -------------------------
-# RUN
+# RUN SERVER
 # -------------------------
 if __name__ == "__main__":
     import uvicorn
