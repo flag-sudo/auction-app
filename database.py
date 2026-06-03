@@ -15,10 +15,10 @@ CREATE TABLE IF NOT EXISTS lots(
     seller TEXT,
     leader TEXT,
     end_time INTEGER,
-    status TEXT DEFAULT 'active'
+    status TEXT DEFAULT 'active',
+    contact_locked INTEGER DEFAULT 1
 )
 """)
-
 conn.commit()
 
 
