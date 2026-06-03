@@ -157,3 +157,23 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+@app.get("/add_test")
+def add_test():
+
+    cursor.execute("""
+        INSERT INTO lots(title, description, current_price, blitz_price, seller, leader, end_time)
+        VALUES(?,?,?,?,?,?,?)
+    """, (
+        "Test iPhone 14",
+        "Почти новый телефон",
+        500,
+        1000,
+        "@seller",
+        "",
+        int(time.time()) + 3600
+    ))
+
+    conn.commit()
+
+    return {"ok": True}
