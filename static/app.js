@@ -5,6 +5,28 @@ let user = tg.initDataUnsafe?.user;
 let username = user ? (user.username || user.first_name) : "guest";
 
 
+async function createLot(){
+
+    const data = {
+        title: document.getElementById("title").value,
+        desc: document.getElementById("desc").value,
+        price: document.getElementById("price").value,
+        blitz: document.getElementById("blitz").value,
+        step: document.getElementById("step").value,
+        time: document.getElementById("time").value,
+        seller: username
+    };
+
+    await fetch("/create_lot", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify(data)
+    });
+
+    location.reload();
+}
+
+
 async function bid(id){
 
     await fetch(`/bid/${id}`, {
