@@ -11,32 +11,53 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 # -------------------------
-# CHECK FINISH
+# PAYMENTS TABLE INIT (SAFE)
 # -------------------------
-def check_finish():
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS payments(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user TEXT,
+    lot_id INTEGER,
+    type TEXT,
+    status TEXT,
+    created_at INTEGER
+)
+""")
+conn.commit()
+
+
+# -------------------------
+# AUTO FINISH ENGINE
+# -------------------------
+def finish_engine():
     now = int(time.time())
 
-    cursor.execute("SELECT id, end_time, status FROM lots")
+    cursor.execute("SELECT id, end_time, status, leader FROM lots")
     lots = cursor.fetchall()
 
-    for lot_id, end_time, status in lots:
+    for lot_id, end_time, status, leader in lots:
+
         if status == "active" and end_time and now > end_time:
+
+            winner = leader if leader else "NO BIDS"
+
             cursor.execute("""
                 UPDATE lots
-                SET status='finished'
+                SET status='finished',
+                    leader=?
                 WHERE id=?
-            """, (lot_id,))
+            """, (f"🏆 {winner}", lot_id))
 
     conn.commit()
 
 
 # -------------------------
-# HOME
+# HOME PAGE
 # -------------------------
 @app.get("/", response_class=HTMLResponse)
 def home():
 
-    check_finish()
+    finish_engine()
     now = int(time.time())
 
     cursor.execute("SELECT * FROM lots ORDER BY id DESC")
@@ -51,8 +72,11 @@ def home():
         if status == "finished":
             timer = "🏁 FINISHED"
         else:
-            remaining = end_time - now
+            remaining = max(0, end_time - now)
             timer = f"⏱ {remaining//60}m {remaining%60}s"
+
+        # 🔒 seller hidden
+        seller_view = "🔒 hidden"
 
         html += f"""
         <div class="lot">
@@ -63,13 +87,15 @@ def home():
             <div>💰 {price} грн</div>
             <div>⚡ {blitz} грн</div>
             <div>📈 step {step}</div>
-            <div>👤 {seller}</div>
+            <div>👤 {seller_view}</div>
             <div>👑 {leader}</div>
             <div>{timer}</div>
 
             <button onclick="bid({id})">+ ставка</button>
             <button onclick="customBid({id})">своя цена</button>
             <button onclick="blitz({id})">blitz</button>
+
+            <button onclick="unlock({id})">🔓 открыть продавца (20⭐)</button>
 
         </div>
         """
@@ -78,22 +104,21 @@ def home():
     <html>
     <head>
         <script src="https://telegram.org/js/telegram-web-app.js"></script>
-        <link rel="stylesheet" href="/static/style.css">
     </head>
 
     <body>
 
-        <h1>🏆 Auction PRO</h1>
+        <h1>🏆 AUCTION COMMERCIAL v1</h1>
 
         <div class="create-box">
 
-            <h2>➕ Создать лот</h2>
+            <h3>Создать лот</h3>
 
             <input id="title" placeholder="Название">
             <input id="desc" placeholder="Описание">
             <input id="price" placeholder="Старт цена">
             <input id="blitz" placeholder="Блиц цена">
-            <input id="step" placeholder="Шаг ставки">
+            <input id="step" placeholder="Шаг">
             <input id="time" placeholder="Минуты">
 
             <button onclick="createLot()">Создать</button>
@@ -118,21 +143,23 @@ async def create_lot(request: Request):
 
     data = await request.json()
 
-    title = data["title"]
-    desc = data["desc"]
-    price = int(data["price"])
-    blitz = int(data["blitz"])
-    step = int(data["step"])
-    minutes = int(data["time"])
-    seller = data.get("seller", "user")
-
-    end_time = int(time.time()) + minutes * 60
-
     cursor.execute("""
-        INSERT INTO lots(title, description, current_price, blitz_price, min_step, seller, leader, end_time, status)
-        VALUES(?,?,?,?,?,?,?,?, 'active')
+    INSERT INTO lots(
+        title, description, current_price,
+        blitz_price, min_step,
+        seller, leader, end_time, status
+    )
+    VALUES(?,?,?,?,?,?,?,?,?)
     """, (
-        title, desc, price, blitz, step, seller, "", end_time
+        data["title"],
+        data["desc"],
+        int(data["price"]),
+        int(data["blitz"]),
+        int(data["step"]),
+        data["seller"],
+        "",
+        int(time.time()) + int(data["time"]) * 60,
+        "active"
     ))
 
     conn.commit()
@@ -152,7 +179,7 @@ async def bid(lot_id: int, request: Request):
     cursor.execute("SELECT current_price, min_step, status FROM lots WHERE id=?", (lot_id,))
     price, step, status = cursor.fetchone()
 
-    if status == "finished":
+    if status != "active":
         return {"ok": False}
 
     new_price = price + step
@@ -196,7 +223,7 @@ async def custom_bid(lot_id: int, request: Request):
 
 
 # -------------------------
-# BLITZ
+# BLITZ BUY
 # -------------------------
 @app.post("/blitz/{lot_id}")
 async def blitz(lot_id: int, request: Request):
@@ -216,6 +243,38 @@ async def blitz(lot_id: int, request: Request):
     conn.commit()
 
     return {"ok": True}
+
+
+# -------------------------
+# UNLOCK SELLER (COMMERCIAL CORE)
+# -------------------------
+@app.post("/unlock/{lot_id}")
+async def unlock(lot_id: int, request: Request):
+
+    data = await request.json()
+    user = data["user"]
+
+    cursor.execute("SELECT seller FROM lots WHERE id=?", (lot_id,))
+    seller = cursor.fetchone()[0]
+
+    # simulate payment (Stars later)
+    cursor.execute("""
+        INSERT INTO payments(user, lot_id, type, status, created_at)
+        VALUES(?,?,?,?,?)
+    """, (
+        user,
+        lot_id,
+        "unlock_contact",
+        "paid_mock",
+        int(time.time())
+    ))
+
+    conn.commit()
+
+    return {
+        "ok": True,
+        "seller": seller
+    }
 
 
 # -------------------------
