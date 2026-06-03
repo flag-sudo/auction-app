@@ -8,12 +8,12 @@ let username = user ? (user.username || user.first_name) : "guest";
 async function createLot(){
 
     const data = {
-        title: document.getElementById("title").value,
-        desc: document.getElementById("desc").value,
-        price: document.getElementById("price").value,
-        blitz: document.getElementById("blitz").value,
-        step: document.getElementById("step").value,
-        time: document.getElementById("time").value,
+        title: title.value,
+        desc: desc.value,
+        price: price.value,
+        blitz: blitz.value,
+        step: step.value,
+        time: time.value,
         seller: username
     };
 
@@ -62,4 +62,20 @@ async function blitz(id){
     });
 
     location.reload();
+}
+
+
+async function unlock(id){
+
+    const res = await fetch(`/unlock/${id}`, {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({user: username})
+    });
+
+    const data = await res.json();
+
+    if(data.ok){
+        alert("Продавец: " + data.seller);
+    }
 }
