@@ -4,6 +4,7 @@ from fastapi.staticfiles import StaticFiles
 
 from database import cursor, conn
 import time
+import os
 
 app = FastAPI()
 
@@ -11,7 +12,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 # -------------------------
-# ГЛАВНАЯ СТРАНИЦА
+# ГЛАВНАЯ
 # -------------------------
 @app.get("/", response_class=HTMLResponse)
 def home():
@@ -34,17 +35,15 @@ def home():
         leader = lot[6]
         end_time = lot[7]
 
-        if end_time == 0:
-            status = "⏳ Без таймера"
-        else:
+        if end_time and now > end_time:
+            status = "🏁 АУКЦИОН ЗАВЕРШЁН"
+        elif end_time:
             remaining = end_time - now
-
-            if remaining <= 0:
-                status = "🏁 АУКЦИОН ЗАВЕРШЁН"
-            else:
-                m = remaining // 60
-                s = remaining % 60
-                status = f"⏱ {m}м {s}с"
+            m = remaining // 60
+            s = remaining % 60
+            status = f"⏱ {m}м {s}с"
+        else:
+            status = "⏳ Без таймера"
 
         html += f"""
         <div class="lot">
@@ -56,24 +55,16 @@ def home():
 
             <div class="info">
 
-                <div class="price">
-                    💰 Ставка: <b>{price} грн</b>
-                </div>
-
+                <div>💰 Ставка: <b>{price} грн</b></div>
                 <div>⚡ Блиц: <b>{blitz} грн</b></div>
-
                 <div>👤 Продавец: <b>{seller}</b></div>
-
                 <div>👑 Лидер: <b>{leader}</b></div>
-
                 <div>{status}</div>
 
             </div>
 
             <div class="buttons">
                 <button onclick="bid({lot_id}, this)">+50 грн</button>
-                <button onclick="bid({lot_id}, this)">+100 грн</button>
-                <button class="blitz">⚡ Блиц</button>
             </div>
 
         </div>
@@ -87,7 +78,6 @@ def home():
         <title>Auction</title>
 
         <script src="https://telegram.org/js/telegram-web-app.js"></script>
-
         <link rel="stylesheet" href="/static/style.css">
     </head>
 
@@ -109,7 +99,7 @@ def home():
 
 
 # -------------------------
-# СТАВКА (TELEGRAM USER)
+# СТАВКА
 # -------------------------
 @app.post("/bid/{lot_id}")
 async def bid(lot_id: int, request: Request):
@@ -117,30 +107,23 @@ async def bid(lot_id: int, request: Request):
     data = await request.json()
     user = data.get("user", "unknown")
 
-    cursor.execute("""
-        SELECT current_price, end_time
-        FROM lots
-        WHERE id=?
-    """, (lot_id,))
-
+    cursor.execute("SELECT current_price, end_time FROM lots WHERE id=?", (lot_id,))
     lot = cursor.fetchone()
 
     if not lot:
         return {"ok": False}
 
-    current_price = lot[0]
+    price = lot[0]
     end_time = lot[1]
 
-    # если аукцион закончился
-    if end_time != 0 and time.time() > end_time:
-        return {"ok": False, "msg": "ended"}
+    if end_time and time.time() > end_time:
+        return {"ok": False}
 
-    new_price = current_price + 50
+    new_price = price + 50
 
     cursor.execute("""
         UPDATE lots
-        SET current_price=?,
-            leader=?
+        SET current_price=?, leader=?
         WHERE id=?
     """, (new_price, user, lot_id))
 
@@ -151,29 +134,12 @@ async def bid(lot_id: int, request: Request):
         "price": new_price,
         "leader": user
     }
-import os
 
+
+# -------------------------
+# RUN (Render)
+# -------------------------
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
-
-@app.get("/add_test")
-def add_test():
-
-    cursor.execute("""
-        INSERT INTO lots(title, description, current_price, blitz_price, seller, leader, end_time)
-        VALUES(?,?,?,?,?,?,?)
-    """, (
-        "Test iPhone 14",
-        "Почти новый телефон",
-        500,
-        1000,
-        "@seller",
-        "",
-        int(time.time()) + 3600
-    ))
-
-    conn.commit()
-
-    return {"ok": True}
